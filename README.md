@@ -17,3 +17,7 @@ If the button is missing from the sidebar launcher, turn it on under **Customize
 ## Behavior
 
 Closing the sidebar unloads the page. Opening it again returns to the last page on grok.com, including a subdomain. You stay signed in.
+
+## License
+
+The code is MIT. Grok and its mark are trademarks of SpaceXAI and are not covered by that license.
