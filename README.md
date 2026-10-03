@@ -1,4 +1,4 @@
-# Grok
+# SideGrok
 
 The built-in sidebar chatbot does not include Grok. This extension tries to compensate with a sidebar button.
 
