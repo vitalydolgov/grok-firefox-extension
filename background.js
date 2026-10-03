@@ -5,9 +5,10 @@
 // browser itself, which is the same kind of load the built-in chatbot uses.
 //
 // Closing the sidebar unloads that document. The next open loads whatever
-// URL was last passed to setPanel, so navigation inside Grok has to be
-// recorded and applied after the panel closes. Applying it while the panel
-// is open calls SidebarController.show, which reloads the page.
+// URL was last passed to setPanel, so navigation inside the sidebar has to be
+// recorded and applied after the panel closes. A normal grok.com tab must not
+// be recorded. Applying the URL while the panel is open calls
+// SidebarController.show, which reloads the page.
 //
 // Context-menu actions (summarize, explain, quiz, proofread) belong to the
 // built-in chatbot and are intentionally not implemented here.
@@ -234,21 +235,27 @@ async function noteClosed() {
   }
 }
 
-browser.runtime.onMessage.addListener((message) => {
+browser.runtime.onMessage.addListener((message, sender) => {
   if (!message || message.type !== "panel-url") {
     return undefined;
+  }
+  // The same content script runs in every grok.com tab. Those tabs have
+  // sender.tab; the sidebar browser does not. A tab must not replace the
+  // page the sidebar restores.
+  if (sender.tab) {
+    return Promise.resolve({ sidebar: false });
   }
   rememberPanelUrl(message.url);
   if (!message.closing) {
     wasOpen = true;
-    return undefined;
+    return Promise.resolve({ sidebar: true });
   }
-  return browser.sidebarAction.isOpen({}).then((isOpen) => {
+  return browser.sidebarAction.isOpen({}).then(async (isOpen) => {
     wasOpen = isOpen;
     if (!isOpen) {
-      return applySavedPanel();
+      await applySavedPanel();
     }
-    return undefined;
+    return { sidebar: true };
   });
 });
 
