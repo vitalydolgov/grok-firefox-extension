@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Grok",
   "version": "1.0.0",
-  "description": "Opens Grok in the Firefox sidebar. The built-in chatbot covers Claude, ChatGPT, Gemini, and Mistral; this adds Grok as a sidebar web view.",
+  "description": "Opens Grok in the sidebar.",
   "browser_specific_settings": {
     "gecko": {
       "id": "grok-sidebar@grok-firefox.local",
