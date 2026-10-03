@@ -18,6 +18,8 @@ If the button is missing from the sidebar launcher, turn it on under **Customize
 
 Closing the sidebar unloads the page. Opening it again returns to the last page on grok.com. You stay signed in.
 
+**Tip:** Start a new conversation with Cmd+J on macOS, or Ctrl+J on Windows and Linux.
+
 ## License
 
 The code is MIT. Grok and its mark are trademarks of SpaceXAI and are not covered by that license.
