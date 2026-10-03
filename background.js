@@ -16,6 +16,185 @@ let panelUrl = GROK_HOME;
 let wasOpen = false;
 let applyChain = Promise.resolve();
 
+// The revamp sidebar paints this action as an <img>, so a context-fill SVG
+// stays black. The launcher sits on the toolbar surface (a transparent toolbar
+// shows the frame). Pick the mark that contrasts with that surface.
+const BLACK_MARK = {
+  16: "icons/icon-16.png",
+  32: "icons/icon-32.png",
+  48: "icons/icon-48.png",
+  96: "icons/icon-96.png",
+  128: "icons/icon-128.png",
+};
+const WHITE_MARK = {
+  16: "icons/icon-white-16.png",
+  32: "icons/icon-white-32.png",
+  48: "icons/icon-white-48.png",
+  96: "icons/icon-white-96.png",
+  128: "icons/icon-white-128.png",
+};
+const appliedMark = new Map();
+let iconChain = Promise.resolve();
+
+function parseThemeColor(input) {
+  if (Array.isArray(input) && input.length >= 3) {
+    const r = Number(input[0]);
+    const g = Number(input[1]);
+    const b = Number(input[2]);
+    const a = input.length >= 4 ? Number(input[3]) : 1;
+    if (![r, g, b, a].every(Number.isFinite)) {
+      return null;
+    }
+    return { r, g, b, a };
+  }
+  if (typeof input !== "string") {
+    return null;
+  }
+  const value = input.trim().toLowerCase();
+  if (value === "transparent") {
+    return { r: 0, g: 0, b: 0, a: 0 };
+  }
+  if (value === "white") {
+    return { r: 255, g: 255, b: 255, a: 1 };
+  }
+  if (value === "black") {
+    return { r: 0, g: 0, b: 0, a: 1 };
+  }
+  const hex = value.match(/^#([0-9a-f]{3,8})$/);
+  if (hex) {
+    let h = hex[1];
+    if (h.length === 3 || h.length === 4) {
+      h = [...h].map((channel) => channel + channel).join("");
+    }
+    if (h.length !== 6 && h.length !== 8) {
+      return null;
+    }
+    return {
+      r: parseInt(h.slice(0, 2), 16),
+      g: parseInt(h.slice(2, 4), 16),
+      b: parseInt(h.slice(4, 6), 16),
+      a: h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1,
+    };
+  }
+  const rgb = value.match(
+    /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/
+  );
+  if (!rgb) {
+    return null;
+  }
+  return {
+    r: Number(rgb[1]),
+    g: Number(rgb[2]),
+    b: Number(rgb[3]),
+    a: rgb[4] === undefined ? 1 : Number(rgb[4]),
+  };
+}
+
+function compositeOver(top, bottom) {
+  if (!top) {
+    return bottom || null;
+  }
+  if (!bottom || top.a >= 0.999) {
+    return top;
+  }
+  const alpha = top.a + bottom.a * (1 - top.a);
+  if (alpha <= 0) {
+    return null;
+  }
+  const channel = (above, below) =>
+    Math.round((above * top.a + below * bottom.a * (1 - top.a)) / alpha);
+  return {
+    r: channel(top.r, bottom.r),
+    g: channel(top.g, bottom.g),
+    b: channel(top.b, bottom.b),
+    a: alpha,
+  };
+}
+
+function launcherBackground(colors) {
+  if (!colors) {
+    return null;
+  }
+  const surface =
+    compositeOver(parseThemeColor(colors.toolbar), parseThemeColor(colors.frame)) ||
+    parseThemeColor(colors.sidebar);
+  if (!surface || surface.a < 0.5) {
+    return null;
+  }
+  return surface;
+}
+
+function whiteMarkOn(color) {
+  const linear = (channel) => {
+    const value = channel / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  const lum =
+    0.2126 * linear(color.r) + 0.7152 * linear(color.g) + 0.0722 * linear(color.b);
+  // Same cutoff Firefox uses for badge text: white on dark, black on light.
+  return (lum + 0.05) ** 2 <= 1.05 * 0.05;
+}
+
+function markForTheme(theme) {
+  const background = launcherBackground(theme && theme.colors);
+  if (background) {
+    return whiteMarkOn(background) ? WHITE_MARK : BLACK_MARK;
+  }
+  const scheme = theme && theme.properties && theme.properties.color_scheme;
+  if (scheme === "dark") {
+    return WHITE_MARK;
+  }
+  if (scheme === "light") {
+    return BLACK_MARK;
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? WHITE_MARK
+    : BLACK_MARK;
+}
+
+function refreshThemeIcon(windowId) {
+  const targeted = Number.isInteger(windowId);
+  const run = iconChain.then(async () => {
+    if (targeted) {
+      await applyIconForWindow(windowId);
+      return;
+    }
+    await applyIconForWindow(undefined);
+    const windows = await browser.windows.getAll();
+    for (const win of windows) {
+      await applyIconForWindow(win.id);
+    }
+  });
+  iconChain = run.catch((error) => {
+    console.error("Failed to match the Grok icon to the theme", error);
+  });
+  return iconChain;
+}
+
+async function applyIconForWindow(windowId) {
+  let theme = null;
+  try {
+    theme =
+      windowId == null
+        ? await browser.theme.getCurrent()
+        : await browser.theme.getCurrent(windowId);
+  } catch (error) {
+    console.error("Failed to read the browser theme", error);
+  }
+  const path = markForTheme(theme);
+  const key = windowId == null ? "global" : windowId;
+  const name = path === WHITE_MARK ? "white" : "black";
+  if (appliedMark.get(key) === name) {
+    return;
+  }
+  const details = { path };
+  if (windowId != null) {
+    details.windowId = windowId;
+  }
+  await browser.sidebarAction.setIcon(details);
+  appliedMark.set(key, name);
+}
+
 function rememberPanelUrl(value) {
   const next = grokPanelUrl(value);
   if (!next || next === panelUrl) {
@@ -86,6 +265,18 @@ async function init() {
   }
   await applySavedPanel();
   console.info("Grok sidebar panel:", panelUrl);
+  refreshThemeIcon();
+  browser.theme.onUpdated.addListener((update) => {
+    refreshThemeIcon(update && update.windowId);
+  });
+  browser.windows.onCreated.addListener((win) => {
+    refreshThemeIcon(win.id);
+  });
+  window
+    .matchMedia("(prefers-color-scheme: dark)")
+    .addEventListener("change", () => {
+      refreshThemeIcon();
+    });
   setInterval(() => {
     noteClosed().catch((error) => {
       console.error(error);
