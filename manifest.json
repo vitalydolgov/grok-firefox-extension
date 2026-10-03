@@ -12,9 +12,17 @@
       }
     }
   },
+  "permissions": ["storage"],
   "background": {
-    "scripts": ["background.js"]
+    "scripts": ["panel-url.js", "background.js"]
   },
+  "content_scripts": [
+    {
+      "matches": ["https://grok.com/*", "https://*.grok.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
   "sidebar_action": {
     "default_title": "Grok",
     "default_panel": "sidebar.html",
