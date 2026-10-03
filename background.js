@@ -241,11 +241,17 @@ browser.runtime.onMessage.addListener((message, sender) => {
   }
   // The same content script runs in every grok.com tab. Those tabs have
   // sender.tab; the sidebar browser does not. A tab must not replace the
-  // page the sidebar restores.
-  if (sender.tab) {
+  // page the sidebar restores. sender.url has to be that same Grok page:
+  // an extension page also has no tab, and must not set the panel either.
+  const senderPage = grokPanelUrl(sender && sender.url);
+  const reported = grokPanelUrl(message.url);
+  if (sender.tab || !senderPage || !reported) {
     return Promise.resolve({ sidebar: false });
   }
-  rememberPanelUrl(message.url);
+  if (new URL(senderPage).origin !== new URL(reported).origin) {
+    return Promise.resolve({ sidebar: false });
+  }
+  rememberPanelUrl(reported);
   if (!message.closing) {
     wasOpen = true;
     return Promise.resolve({ sidebar: true });
@@ -271,7 +277,7 @@ async function init() {
     console.error(error);
   }
   await applySavedPanel();
-  console.info("Grok sidebar panel:", panelUrl);
+  console.info("Restored the Grok sidebar panel");
   refreshThemeIcon();
   browser.theme.onUpdated.addListener((update) => {
     refreshThemeIcon(update && update.windowId);
