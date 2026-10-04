@@ -16,6 +16,13 @@
 let panelUrl = GROK_HOME;
 let wasOpen = false;
 let applyChain = Promise.resolve();
+// Set when the shortcut asks for a new conversation before startup has
+// finished reading the saved panel URL.
+let newConversationRequested = false;
+// pagehide on the document being replaced reports the old conversation.
+// Ignore those unload reports until the replacement page has checked in.
+let suppressClosingUntil = 0;
+let livePanelUrl = null;
 
 // The revamp sidebar paints this action as an <img>, so a context-fill SVG
 // stays black. The launcher sits on the toolbar surface (a transparent toolbar
@@ -196,9 +203,22 @@ async function applyIconForWindow(windowId) {
   appliedMark.set(key, name);
 }
 
-function rememberPanelUrl(value) {
+function rememberPanelUrl(value, closing) {
   const next = grokPanelUrl(value);
-  if (!next || next === panelUrl) {
+  if (!next) {
+    return;
+  }
+  if (Date.now() < suppressClosingUntil) {
+    // A live report is the replacement page. An unload report is the page
+    // we just left, unless it is that same replacement page closing.
+    if (closing && next !== livePanelUrl) {
+      return;
+    }
+    if (!closing) {
+      livePanelUrl = next;
+    }
+  }
+  if (next === panelUrl) {
     return;
   }
   panelUrl = next;
@@ -207,13 +227,35 @@ function rememberPanelUrl(value) {
   });
 }
 
+function openNewConversation() {
+  // sidebarAction.open only succeeds in the turn that handles the key.
+  // Anything awaited before it runs after that user-input window closes.
+  newConversationRequested = true;
+  suppressClosingUntil = Date.now() + 5000;
+  livePanelUrl = null;
+  panelUrl = GROK_HOME;
+  browser.storage.local.set({ [PANEL_URL_KEY]: panelUrl }).catch((error) => {
+    console.error("Failed to store the Grok sidebar URL", error);
+  });
+  // loadPanel does not reload when the panel URL is unchanged. A unique
+  // fragment forces a new grok.com document, and fragments are not stored.
+  const freshHome = `${GROK_HOME}#sidegrok=${Date.now()}`;
+  const panelSet = browser.sidebarAction.setPanel({ panel: freshHome });
+  applyChain = applyChain.then(() => panelSet).catch((error) => {
+    console.error("Failed to open a new Grok conversation", error);
+  });
+  browser.sidebarAction.open().catch((error) => {
+    console.error("Failed to open the Grok sidebar", error);
+  });
+}
+
 function applySavedPanel() {
   const run = applyChain.then(async () => {
-    // panelUrl can change while setPanel is in flight. Read it again after
-    // each attempt so a slow home-page write cannot clobber a later page.
+    // panelUrl can change while getPanel or setPanel is in flight. Read it
+    // after each await so a new-conversation request is not overwritten.
     for (let attempt = 0; attempt < 4; attempt++) {
-      const desired = panelUrl;
       const current = grokPanelUrl(await browser.sidebarAction.getPanel({}));
+      const desired = panelUrl;
       if (current === desired) {
         return;
       }
@@ -235,7 +277,17 @@ async function noteClosed() {
   }
 }
 
+browser.commands.onCommand.addListener((command) => {
+  if (command === "new-conversation") {
+    openNewConversation();
+  }
+});
+
 browser.runtime.onMessage.addListener((message, sender) => {
+  if (message && message.type === "new-conversation") {
+    openNewConversation();
+    return Promise.resolve({ ok: true });
+  }
   if (!message || message.type !== "panel-url") {
     return undefined;
   }
@@ -251,7 +303,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
   if (new URL(senderPage).origin !== new URL(reported).origin) {
     return Promise.resolve({ sidebar: false });
   }
-  rememberPanelUrl(reported);
+  rememberPanelUrl(reported, message.closing);
   if (!message.closing) {
     wasOpen = true;
     return Promise.resolve({ sidebar: true });
@@ -268,7 +320,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 async function init() {
   const stored = await browser.storage.local.get(PANEL_URL_KEY);
   const saved = grokPanelUrl(stored[PANEL_URL_KEY]);
-  if (saved) {
+  if (saved && !newConversationRequested) {
     panelUrl = saved;
   }
   try {

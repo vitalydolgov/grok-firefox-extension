@@ -13,10 +13,24 @@
     }
   },
   "permissions": ["storage"],
+  "commands": {
+    "new-conversation": {
+      "suggested_key": {
+        "default": "Alt+Ctrl+J"
+      },
+      "description": "Open Grok to a new conversation"
+    }
+  },
   "background": {
     "scripts": ["panel-url.js", "background.js"]
   },
   "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["shortcut.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
     {
       "matches": ["https://grok.com/*", "https://www.grok.com/*"],
       "js": ["content.js"],

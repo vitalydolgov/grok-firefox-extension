@@ -10,7 +10,7 @@ Requires Firefox 142 or newer.
 2. Click **Load Temporary Add-on**.
 3. Choose `manifest.json` in this folder.
 
-A temporary add-on is removed when Firefox quits. Load it again after the next start.
+A temporary add-on is removed when Firefox quits. Load it again after the next start. Firefox asks for access to all pages so the new-conversation shortcut can run while a page is focused.
 
 If the button is missing from the sidebar launcher, turn it on under **Customize sidebar**.
 
@@ -18,7 +18,7 @@ If the button is missing from the sidebar launcher, turn it on under **Customize
 
 Closing the sidebar unloads the page. Opening it again returns to the last page on grok.com. You stay signed in.
 
-**Tip:** Start a new conversation with Cmd+J on macOS, or Ctrl+J on Windows and Linux.
+**Tip:** Start a new conversation from anywhere with Option+Command+J on macOS, or Ctrl+Alt+J on Windows and Linux.
 
 ## License
 
