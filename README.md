@@ -18,7 +18,7 @@ If the button is missing from the sidebar launcher, turn it on under **Customize
 
 Closing the sidebar unloads the page. Opening it again returns to the last page on grok.com. You stay signed in.
 
-**Tip:** Start a new conversation from anywhere with Option+Command+J on macOS, or Ctrl+Alt+J on Windows and Linux.
+**Tip:** Start a new conversation from anywhere with Option+Command+J on macOS, or Ctrl+Alt+J on Windows and Linux. Turn the shortcut off under the extension’s Preferences in `about:addons`.
 
 ## License
 

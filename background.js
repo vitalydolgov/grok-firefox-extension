@@ -23,6 +23,12 @@ let newConversationRequested = false;
 // Ignore those unload reports until the replacement page has checked in.
 let suppressClosingUntil = 0;
 let livePanelUrl = null;
+// The manifest command still owns the chord in the address bar and on
+// about: pages, where the content script does not run. Clear that binding
+// while the preference is off so the key is left alone there too.
+let shortcutEnabled = true;
+let applyingShortcutPreference = false;
+const NEW_CONVERSATION_SHORTCUT = "Alt+Ctrl+J";
 
 // The revamp sidebar paints this action as an <img>, so a context-fill SVG
 // stays black. The launcher sits on the toolbar surface (a transparent toolbar
@@ -227,7 +233,24 @@ function rememberPanelUrl(value, closing) {
   });
 }
 
+function applyShortcutPreference(enabled) {
+  shortcutEnabled = enabled !== false;
+  applyingShortcutPreference = true;
+  const shortcut = shortcutEnabled ? NEW_CONVERSATION_SHORTCUT : "";
+  browser.commands
+    .update({ name: "new-conversation", shortcut })
+    .catch((error) => {
+      console.error("Failed to update the new-conversation shortcut", error);
+    })
+    .finally(() => {
+      applyingShortcutPreference = false;
+    });
+}
+
 function openNewConversation() {
+  if (!shortcutEnabled) {
+    return;
+  }
   // sidebarAction.open only succeeds in the turn that handles the key.
   // Anything awaited before it runs after that user-input window closes.
   newConversationRequested = true;
@@ -283,6 +306,37 @@ browser.commands.onCommand.addListener((command) => {
   }
 });
 
+browser.commands.onChanged.addListener((change) => {
+  if (
+    applyingShortcutPreference ||
+    !change ||
+    change.name !== "new-conversation"
+  ) {
+    return;
+  }
+  const enabled = change.newShortcut !== "";
+  if (enabled === shortcutEnabled) {
+    return;
+  }
+  shortcutEnabled = enabled;
+  browser.storage.local
+    .set({ [SHORTCUT_ENABLED_KEY]: enabled })
+    .catch((error) => {
+      console.error("Failed to store the shortcut preference", error);
+    });
+});
+
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !Object.hasOwn(changes, SHORTCUT_ENABLED_KEY)) {
+    return;
+  }
+  const enabled = changes[SHORTCUT_ENABLED_KEY].newValue !== false;
+  if (enabled === shortcutEnabled) {
+    return;
+  }
+  applyShortcutPreference(enabled);
+});
+
 browser.runtime.onMessage.addListener((message, sender) => {
   if (message && message.type === "new-conversation") {
     openNewConversation();
@@ -318,7 +372,13 @@ browser.runtime.onMessage.addListener((message, sender) => {
 });
 
 async function init() {
-  const stored = await browser.storage.local.get(PANEL_URL_KEY);
+  const stored = await browser.storage.local.get([
+    PANEL_URL_KEY,
+    SHORTCUT_ENABLED_KEY,
+  ]);
+  if (stored[SHORTCUT_ENABLED_KEY] === false) {
+    applyShortcutPreference(false);
+  }
   const saved = grokPanelUrl(stored[PANEL_URL_KEY]);
   if (saved && !newConversationRequested) {
     panelUrl = saved;
