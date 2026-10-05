@@ -16,19 +16,12 @@
 let panelUrl = GROK_HOME;
 let wasOpen = false;
 let applyChain = Promise.resolve();
-// Set when the shortcut asks for a new conversation before startup has
-// finished reading the saved panel URL.
-let newConversationRequested = false;
-// pagehide on the document being replaced reports the old conversation.
-// Ignore those unload reports until the replacement page has checked in.
-let suppressClosingUntil = 0;
-let livePanelUrl = null;
-// The manifest command still owns the chord in the address bar and on
-// about: pages, where the content script does not run. Clear that binding
-// while the preference is off so the key is left alone there too.
+// Option+Command+A matches key="A": Firefox also tries the unmodified letter,
+// so the Option character still hits this command. An empty shortcut turns it off.
 let shortcutEnabled = true;
 let applyingShortcutPreference = false;
-const NEW_CONVERSATION_SHORTCUT = "Alt+Ctrl+J";
+const TOGGLE_COMMAND = "toggle-sidebar";
+const TOGGLE_SHORTCUT = "Alt+Ctrl+A";
 
 // The revamp sidebar paints this action as an <img>, so a context-fill SVG
 // stays black. The launcher sits on the toolbar surface (a transparent toolbar
@@ -209,22 +202,9 @@ async function applyIconForWindow(windowId) {
   appliedMark.set(key, name);
 }
 
-function rememberPanelUrl(value, closing) {
+function rememberPanelUrl(value) {
   const next = grokPanelUrl(value);
-  if (!next) {
-    return;
-  }
-  if (Date.now() < suppressClosingUntil) {
-    // A live report is the replacement page. An unload report is the page
-    // we just left, unless it is that same replacement page closing.
-    if (closing && next !== livePanelUrl) {
-      return;
-    }
-    if (!closing) {
-      livePanelUrl = next;
-    }
-  }
-  if (next === panelUrl) {
+  if (!next || next === panelUrl) {
     return;
   }
   panelUrl = next;
@@ -236,46 +216,32 @@ function rememberPanelUrl(value, closing) {
 function applyShortcutPreference(enabled) {
   shortcutEnabled = enabled !== false;
   applyingShortcutPreference = true;
-  const shortcut = shortcutEnabled ? NEW_CONVERSATION_SHORTCUT : "";
+  const shortcut = shortcutEnabled ? TOGGLE_SHORTCUT : "";
   browser.commands
-    .update({ name: "new-conversation", shortcut })
+    .update({ name: TOGGLE_COMMAND, shortcut })
     .catch((error) => {
-      console.error("Failed to update the new-conversation shortcut", error);
+      console.error("Failed to update the sidebar shortcut", error);
     })
     .finally(() => {
       applyingShortcutPreference = false;
     });
 }
 
-function openNewConversation() {
+function toggleSidebar() {
   if (!shortcutEnabled) {
     return;
   }
-  // sidebarAction.open only succeeds in the turn that handles the key.
+  // sidebarAction.toggle only succeeds in the turn that handles the key.
   // Anything awaited before it runs after that user-input window closes.
-  newConversationRequested = true;
-  suppressClosingUntil = Date.now() + 5000;
-  livePanelUrl = null;
-  panelUrl = GROK_HOME;
-  browser.storage.local.set({ [PANEL_URL_KEY]: panelUrl }).catch((error) => {
-    console.error("Failed to store the Grok sidebar URL", error);
-  });
-  // loadPanel does not reload when the panel URL is unchanged. A unique
-  // fragment forces a new grok.com document, and fragments are not stored.
-  const freshHome = `${GROK_HOME}#sidegrok=${Date.now()}`;
-  const panelSet = browser.sidebarAction.setPanel({ panel: freshHome });
-  applyChain = applyChain.then(() => panelSet).catch((error) => {
-    console.error("Failed to open a new Grok conversation", error);
-  });
-  browser.sidebarAction.open().catch((error) => {
-    console.error("Failed to open the Grok sidebar", error);
+  browser.sidebarAction.toggle().catch((error) => {
+    console.error("Failed to toggle the Grok sidebar", error);
   });
 }
 
 function applySavedPanel() {
   const run = applyChain.then(async () => {
-    // panelUrl can change while getPanel or setPanel is in flight. Read it
-    // after each await so a new-conversation request is not overwritten.
+    // panelUrl can change while setPanel is in flight. Read it again after
+    // each attempt so a slow home-page write cannot clobber a later page.
     for (let attempt = 0; attempt < 4; attempt++) {
       const current = grokPanelUrl(await browser.sidebarAction.getPanel({}));
       const desired = panelUrl;
@@ -301,17 +267,13 @@ async function noteClosed() {
 }
 
 browser.commands.onCommand.addListener((command) => {
-  if (command === "new-conversation") {
-    openNewConversation();
+  if (command === TOGGLE_COMMAND) {
+    toggleSidebar();
   }
 });
 
 browser.commands.onChanged.addListener((change) => {
-  if (
-    applyingShortcutPreference ||
-    !change ||
-    change.name !== "new-conversation"
-  ) {
+  if (applyingShortcutPreference || !change || change.name !== TOGGLE_COMMAND) {
     return;
   }
   const enabled = change.newShortcut !== "";
@@ -338,10 +300,6 @@ browser.storage.onChanged.addListener((changes, area) => {
 });
 
 browser.runtime.onMessage.addListener((message, sender) => {
-  if (message && message.type === "new-conversation") {
-    openNewConversation();
-    return Promise.resolve({ ok: true });
-  }
   if (!message || message.type !== "panel-url") {
     return undefined;
   }
@@ -357,7 +315,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
   if (new URL(senderPage).origin !== new URL(reported).origin) {
     return Promise.resolve({ sidebar: false });
   }
-  rememberPanelUrl(reported, message.closing);
+  rememberPanelUrl(reported);
   if (!message.closing) {
     wasOpen = true;
     return Promise.resolve({ sidebar: true });
@@ -380,7 +338,7 @@ async function init() {
     applyShortcutPreference(false);
   }
   const saved = grokPanelUrl(stored[PANEL_URL_KEY]);
-  if (saved && !newConversationRequested) {
+  if (saved) {
     panelUrl = saved;
   }
   try {

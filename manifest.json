@@ -17,23 +17,17 @@
     "page": "options.html"
   },
   "commands": {
-    "new-conversation": {
+    "toggle-sidebar": {
       "suggested_key": {
-        "default": "Alt+Ctrl+J"
+        "default": "Alt+Ctrl+A"
       },
-      "description": "Open Grok to a new conversation"
+      "description": "Show or hide the drawer"
     }
   },
   "background": {
     "scripts": ["panel-url.js", "background.js"]
   },
   "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["panel-url.js", "shortcut.js"],
-      "run_at": "document_start",
-      "all_frames": true
-    },
     {
       "matches": ["https://grok.com/*", "https://www.grok.com/*"],
       "js": ["content.js"],

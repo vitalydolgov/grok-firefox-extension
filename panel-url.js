@@ -1,6 +1,6 @@
 var GROK_HOME = "https://grok.com/";
 var PANEL_URL_KEY = "panelUrl";
-// Absent or any value other than false keeps the new-conversation shortcut.
+// Absent or any value other than false keeps the sidebar shortcut.
 var SHORTCUT_ENABLED_KEY = "shortcutEnabled";
 
 // Firefox drops the sidebar document when the panel closes and loads
