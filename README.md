@@ -18,7 +18,7 @@ If the button is missing from the sidebar launcher, turn it on under **Customize
 
 Closing the sidebar unloads the page. Opening it again returns to the last page on grok.com. You stay signed in.
 
-**Tip:** Start a new conversation with Cmd+J on macOS, or Ctrl+J on Windows and Linux.
+**Tip:** To toggle the drawer, use Opt+Cmd+A on macOS, or Ctrl+Alt+A on Windows and Linux. Turn it off under the extension’s Preferences in `about:addons`.
 
 ## License
 

@@ -16,6 +16,12 @@
 let panelUrl = GROK_HOME;
 let wasOpen = false;
 let applyChain = Promise.resolve();
+// Option+Command+A matches key="A": Firefox also tries the unmodified letter,
+// so the Option character still hits this command. An empty shortcut turns it off.
+let shortcutEnabled = true;
+let applyingShortcutPreference = false;
+const TOGGLE_COMMAND = "toggle-sidebar";
+const TOGGLE_SHORTCUT = "Alt+Ctrl+A";
 
 // The revamp sidebar paints this action as an <img>, so a context-fill SVG
 // stays black. The launcher sits on the toolbar surface (a transparent toolbar
@@ -207,13 +213,38 @@ function rememberPanelUrl(value) {
   });
 }
 
+function applyShortcutPreference(enabled) {
+  shortcutEnabled = enabled !== false;
+  applyingShortcutPreference = true;
+  const shortcut = shortcutEnabled ? TOGGLE_SHORTCUT : "";
+  browser.commands
+    .update({ name: TOGGLE_COMMAND, shortcut })
+    .catch((error) => {
+      console.error("Failed to update the sidebar shortcut", error);
+    })
+    .finally(() => {
+      applyingShortcutPreference = false;
+    });
+}
+
+function toggleSidebar() {
+  if (!shortcutEnabled) {
+    return;
+  }
+  // sidebarAction.toggle only succeeds in the turn that handles the key.
+  // Anything awaited before it runs after that user-input window closes.
+  browser.sidebarAction.toggle().catch((error) => {
+    console.error("Failed to toggle the Grok sidebar", error);
+  });
+}
+
 function applySavedPanel() {
   const run = applyChain.then(async () => {
     // panelUrl can change while setPanel is in flight. Read it again after
     // each attempt so a slow home-page write cannot clobber a later page.
     for (let attempt = 0; attempt < 4; attempt++) {
-      const desired = panelUrl;
       const current = grokPanelUrl(await browser.sidebarAction.getPanel({}));
+      const desired = panelUrl;
       if (current === desired) {
         return;
       }
@@ -234,6 +265,39 @@ async function noteClosed() {
     await applySavedPanel();
   }
 }
+
+browser.commands.onCommand.addListener((command) => {
+  if (command === TOGGLE_COMMAND) {
+    toggleSidebar();
+  }
+});
+
+browser.commands.onChanged.addListener((change) => {
+  if (applyingShortcutPreference || !change || change.name !== TOGGLE_COMMAND) {
+    return;
+  }
+  const enabled = change.newShortcut !== "";
+  if (enabled === shortcutEnabled) {
+    return;
+  }
+  shortcutEnabled = enabled;
+  browser.storage.local
+    .set({ [SHORTCUT_ENABLED_KEY]: enabled })
+    .catch((error) => {
+      console.error("Failed to store the shortcut preference", error);
+    });
+});
+
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !Object.hasOwn(changes, SHORTCUT_ENABLED_KEY)) {
+    return;
+  }
+  const enabled = changes[SHORTCUT_ENABLED_KEY].newValue !== false;
+  if (enabled === shortcutEnabled) {
+    return;
+  }
+  applyShortcutPreference(enabled);
+});
 
 browser.runtime.onMessage.addListener((message, sender) => {
   if (!message || message.type !== "panel-url") {
@@ -266,7 +330,13 @@ browser.runtime.onMessage.addListener((message, sender) => {
 });
 
 async function init() {
-  const stored = await browser.storage.local.get(PANEL_URL_KEY);
+  const stored = await browser.storage.local.get([
+    PANEL_URL_KEY,
+    SHORTCUT_ENABLED_KEY,
+  ]);
+  if (stored[SHORTCUT_ENABLED_KEY] === false) {
+    applyShortcutPreference(false);
+  }
   const saved = grokPanelUrl(stored[PANEL_URL_KEY]);
   if (saved) {
     panelUrl = saved;

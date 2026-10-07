@@ -13,6 +13,17 @@
     }
   },
   "permissions": ["storage"],
+  "options_ui": {
+    "page": "options.html"
+  },
+  "commands": {
+    "toggle-sidebar": {
+      "suggested_key": {
+        "default": "Alt+Ctrl+A"
+      },
+      "description": "Show or hide the drawer"
+    }
+  },
   "background": {
     "scripts": ["panel-url.js", "background.js"]
   },
